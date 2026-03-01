@@ -1,8 +1,11 @@
-# Plan: Generisches OIDC Authentication für Quackback
+# Plan: Generisches OIDC Authentication + Erzwungene Anmeldung für Quackback
 
 ## Zusammenfassung
 
-Quackback unterstützt bereits 33 fest eingebaute OAuth-Provider (GitHub, Google, etc.) über Better Auth's `socialProviders`. Dieses Feature erweitert die Plattform um **generische OIDC-Authentifizierung**, sodass Admins beliebige OIDC-kompatible Identity Provider (Keycloak, Okta, Auth0, Authentik, Azure AD, etc.) ohne Code-Änderungen konfigurieren können.
+Quackback unterstützt bereits 33 fest eingebaute OAuth-Provider (GitHub, Google, etc.) über Better Auth's `socialProviders`. Dieses Feature erweitert die Plattform um:
+
+1. **Generische OIDC-Authentifizierung** — Admins können beliebige OIDC-kompatible Identity Provider (Keycloak, Okta, Auth0, Authentik, Azure AD, etc.) ohne Code-Änderungen konfigurieren.
+2. **Erzwungene Anmeldung für Portal-Besucher** — Anonymer Zugang zum Portal wird blockiert. Besucher müssen sich zuerst authentifizieren, bevor sie Inhalte sehen können. In Kombination mit OIDC ermöglicht das eine nahtlose SSO-Erfahrung: Besucher werden direkt zum IdP weitergeleitet.
 
 ## Technischer Ansatz
 
@@ -475,9 +478,227 @@ export const createOidcProviderSchema = z.object({
 
 ---
 
+## Feature 2: Erzwungene Anmeldung für Portal-Besucher
+
+### Motivation
+
+Aktuell erlaubt das Portal über `publicView: true` unauthentifizierten Besuchern, Inhalte zu sehen. In vielen Szenarien — insbesondere bei internen Feedback-Portalen mit OIDC-Anbindung — soll der gesamte Portal-Zugang erst nach Anmeldung möglich sein. Kein anonymes Browsen, kein "Vorbeischauen" ohne Account.
+
+### Ist-Zustand
+
+Die `publicView`-Einstellung in `PortalFeatures` steuert bereits, ob unauthentifizierte User Inhalte sehen können. **Allerdings** zeigt das Portal aktuell trotzdem die Seite mit einem Auth-Dialog an — der Besucher sieht die leere Portal-Shell und muss aktiv auf "Login" klicken.
+
+### Zielzustand
+
+Wenn `publicView: false`:
+1. Unauthentifizierte Besucher werden **sofort** auf die Login-Seite umgeleitet
+2. Es gibt keinen Portal-Content im Hintergrund (keine leere Shell)
+3. Nach erfolgreicher Anmeldung: Redirect zurück zur ursprünglichen URL
+4. **Besonders mit OIDC:** Wenn nur ein einziger Auth-Provider aktiv ist, wird der Besucher direkt zum IdP weitergeleitet (Skip Login Page)
+
+### Architektur-Überblick
+
+```
+Portal-Besucher (kein Cookie)
+       │
+       ▼
+┌─────────────────────────────────────────┐
+│  Portal-Route Middleware / Loader       │
+│  1. publicView: false?                  │
+│  2. Keine Session? → Redirect /login    │
+└────────────────┬────────────────────────┘
+                 │
+                 ▼
+┌─────────────────────────────────────────┐
+│  Login-Seite                            │
+│  - Nur ein Provider aktiv?              │
+│    → Auto-Redirect zum IdP             │
+│  - Mehrere Provider?                    │
+│    → Provider-Auswahl anzeigen          │
+└────────────────┬────────────────────────┘
+                 │
+                 ▼  OAuth/OIDC-Flow
+┌─────────────────────────────────────────┐
+│  IdP (Keycloak, Okta, Auth0, ...)       │
+│  - User authentifiziert sich            │
+│  - Redirect zurück zum Portal           │
+└────────────────┬────────────────────────┘
+                 │
+                 ▼
+┌─────────────────────────────────────────┐
+│  Portal (authentifiziert)               │
+│  - Session-Cookie gesetzt               │
+│  - Redirect zur ursprünglichen URL     │
+│  - Voller Zugang                        │
+└─────────────────────────────────────────┘
+```
+
+### Implementierungsschritte
+
+#### B1: Portal-Loader Auth-Guard
+
+**Datei:** `apps/web/src/routes/_portal.tsx`
+
+Im SSR-Loader der Portal-Route wird geprüft, ob `requireAuth` aktiviert ist. Wenn ja und keine Session vorhanden: Redirect auf die Login-Seite.
+
+```typescript
+// Im SSR-Loader der Portal-Route:
+async function portalLoader() {
+  const portalConfig = await getPublicPortalConfig()
+  const session = await getSessionFromHeaders()
+
+  if (portalConfig.oauth.requireAuth && !session?.user) {
+    // Harter Redirect statt Auth-Dialog
+    throw redirect({
+      to: '/portal/login',
+      search: { returnTo: getCurrentPath() },
+    })
+  }
+
+  // ... rest des Loaders ...
+}
+```
+
+**Warum SSR-seitig?** Client-seitige Redirects zeigen kurz die ungeschützte Seite (Flash). SSR-Redirects verhindern das vollständig — der Browser bekommt direkt ein 302.
+
+#### B2: Dedizierte Portal-Login-Route
+
+**Neue Datei:** `apps/web/src/routes/portal.login.tsx`
+
+Separate Login-Seite für das Portal (statt Modal/Dialog):
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                                                          │
+│              [Logo / Workspace-Name]                     │
+│                                                          │
+│          Melde dich an, um fortzufahren                  │
+│                                                          │
+│  ┌────────────────────────────────────────────────────┐  │
+│  │  🔑  Mit Corporate SSO anmelden                    │  │
+│  └────────────────────────────────────────────────────┘  │
+│  ┌────────────────────────────────────────────────────┐  │
+│  │  🔑  Mit GitHub anmelden                           │  │
+│  └────────────────────────────────────────────────────┘  │
+│  ┌────────────────────────────────────────────────────┐  │
+│  │  🔑  Mit Google anmelden                           │  │
+│  └────────────────────────────────────────────────────┘  │
+│                                                          │
+│                     ── oder ──                           │
+│                                                          │
+│  ┌────────────────────────────────────────────────────┐  │
+│  │  E-Mail: ___________________________________      │  │
+│  │  Passwort: _________________________________      │  │
+│  │                              [Anmelden]           │  │
+│  └────────────────────────────────────────────────────┘  │
+│                                                          │
+└─────────────────────────────────────────────────────────┘
+```
+
+**Konfiguration via `returnTo`:** Nach erfolgreicher Anmeldung wird der User zur ursprünglichen URL weitergeleitet.
+
+#### B3: Auto-Redirect bei Single-Provider
+
+Wenn nur ein einziger Auth-Provider aktiv ist (z.B. nur OIDC-Keycloak), wird die Login-Seite übersprungen:
+
+```typescript
+// In portal.login.tsx Loader:
+async function loginLoader({ search }) {
+  const allowedMethods = await getAllowedAuthMethods('user')
+  const activeProviders = Object.entries(allowedMethods)
+    .filter(([_, enabled]) => enabled)
+
+  // Nur ein Provider (kein Passwort/E-Mail)? → Direkt zum IdP
+  if (
+    activeProviders.length === 1 &&
+    activeProviders[0][0] !== 'password' &&
+    activeProviders[0][0] !== 'email'
+  ) {
+    const providerId = activeProviders[0][0]
+    // Redirect direkt zum OAuth/OIDC-Flow
+    // returnTo wird in der callbackURL mitgegeben
+    throw redirect({
+      to: `/api/auth/signin/${providerId}`,
+      search: { callbackURL: search.returnTo ?? '/portal' },
+    })
+  }
+
+  return { allowedMethods, returnTo: search.returnTo }
+}
+```
+
+**Use Case:** Unternehmen mit Keycloak als einzigem Login → Besucher landet direkt auf der Keycloak-Login-Seite, ohne Quackback-Zwischenseite.
+
+#### B4: Neue Einstellung `requireAuth` in den Portal-Auth-Settings
+
+Das Feature wird über eine **eigene, unabhängige Einstellung** in den Portal-Auth-Settings aktivierbar — getrennt von `publicView`.
+
+**Datei:** `apps/web/src/lib/server/domains/settings/settings.types.ts`
+
+```typescript
+export interface PortalAuthMethods {
+  // ... bestehende Felder ...
+
+  /** Require authentication before accessing any portal content */
+  requireAuth?: boolean
+}
+```
+
+**Warum eine eigene Einstellung statt `publicView` zu nutzen?**
+- `publicView` steuert, ob Inhalte sichtbar sind (read-only Zugang)
+- `requireAuth` erzwingt eine Anmeldung vor jedem Zugriff (auch Lesen)
+- Beide Einstellungen sind unabhängig konfigurierbar:
+
+| `publicView` | `requireAuth` | Verhalten |
+|:---:|:---:|---|
+| `true` | `false` | Anonym browsen, Auth-Dialog bei Aktionen **(Standard)** |
+| `true` | `true` | Redirect zur Login-Seite, nach Anmeldung volles Portal |
+| `false` | `false` | Portal verborgen, Auth-Dialog bei Aktionen |
+| `false` | `true` | Redirect zur Login-Seite, nach Anmeldung verborgen — sinnlos, UI warnt |
+
+**Standard:** `requireAuth: false` (opt-in, um Rückwärtskompatibilität zu gewährleisten).
+
+**Admin-UI:** Neuer Toggle in den Portal-Auth-Settings:
+
+```
+[Toggle] Require Authentication
+When enabled, visitors must sign in before they can
+access the portal. They will be redirected to the login
+page automatically.
+
+If only one authentication provider is active (e.g. a
+single OIDC provider), visitors are sent directly to
+that provider's login page.
+```
+
+#### B5: UI-Anpassungen für erzwungene Anmeldung
+
+##### a) Portal-Navigation
+
+Wenn `publicView: false` und User ist eingeloggt, wird kein "Login"-Button gebraucht — stattdessen User-Avatar und Logout.
+
+##### b) Admin-Settings
+
+Der neue `requireAuth`-Toggle wird in den Portal-Auth-Settings angezeigt (siehe B4). Er ist unabhängig von `publicView` und hat eine eigene Beschreibung.
+
+#### B6: Tests
+
+**Unit Tests:**
+- `publicView: false` + keine Session → Redirect auf `/portal/login`
+- `publicView: false` + gültige Session → Portal-Inhalte laden
+- `publicView: true` + keine Session → Portal-Inhalte sichtbar (bestehend)
+
+**Integration Tests:**
+- Besucher → Portal → Redirect → OIDC-Login → Redirect zurück → Portal geladen
+- Single-Provider-Auto-Redirect: nur Keycloak aktiv → kein Zwischenschritt
+- Multiple Provider: Keycloak + GitHub → Login-Seite mit Auswahl
+- `returnTo` wird nach Login korrekt aufgelöst
+
+---
+
 ## Betroffene Dateien
 
-### Neue Dateien
+### Neue Dateien (OIDC)
 | Datei | Beschreibung |
 |-------|-------------|
 | `packages/db/src/schema/oidc-providers.ts` | Drizzle-Schema für `oidc_providers` Tabelle |
@@ -487,6 +708,11 @@ export const createOidcProviderSchema = z.object({
 | `apps/web/src/routes/admin/settings.oidc-providers.tsx` | Admin-Seite |
 | `apps/web/src/components/admin/settings/oidc/oidc-provider-form.tsx` | Formular-Komponente |
 | `apps/web/src/components/admin/settings/oidc/oidc-provider-card.tsx` | Karten-Komponente |
+
+### Neue Dateien (Erzwungene Anmeldung)
+| Datei | Beschreibung |
+|-------|-------------|
+| `apps/web/src/routes/portal.login.tsx` | Dedizierte Portal-Login-Seite mit Auto-Redirect-Logik |
 
 ### Geänderte Dateien
 | Datei | Änderung |
@@ -498,12 +724,15 @@ export const createOidcProviderSchema = z.object({
 | `apps/web/src/lib/server/auth/auth-providers.ts` | `getAllAuthProvidersWithOidc()` Funktion |
 | `apps/web/src/lib/server/auth/auth-restrictions.ts` | OIDC-Provider in Auth-Methods |
 | `apps/web/src/components/auth/oauth-buttons.tsx` | `signIn.oauth2()` für OIDC-Provider |
-| `apps/web/src/components/admin/settings/portal-auth/portal-auth-settings.tsx` | OIDC-Provider im Grid |
+| `apps/web/src/components/admin/settings/portal-auth/portal-auth-settings.tsx` | OIDC-Provider im Grid, `requireAuth`-Toggle |
+| `apps/web/src/routes/_portal.tsx` | SSR-Auth-Guard mit Redirect auf `/portal/login` |
 | Settings-Navigation | Neuer Menüpunkt "OIDC Providers" |
 
 ---
 
 ## Offene Fragen / Entscheidungen
+
+### OIDC
 
 1. **Token-Refresh:** Better Auth's `genericOAuth` unterstützt aktuell kein Token-Refresh für Custom-Provider. Für Session-basierte Auth ist das kein Problem, aber falls Quackback jemals OIDC-Access-Tokens für Backend-Calls braucht, müsste das manuell implementiert werden.
 
@@ -514,6 +743,12 @@ export const createOidcProviderSchema = z.object({
 4. **Portal vs. Team:** Sollen OIDC-Provider sowohl für Portal-User als auch Team-Member verfügbar sein? (Aktueller Plan: Ja, analog zu den bestehenden OAuth-Providern.)
 
 5. **Provider-Icons:** Sollen Admins ein Custom-Icon (SVG/PNG) hochladen können, oder reicht eine Farbauswahl für den Hintergrund?
+
+### Erzwungene Anmeldung
+
+6. **`publicView` vs. neue Einstellung:** Reicht es, das bestehende `publicView: false` konsequenter umzusetzen (Redirect statt Dialog), oder soll eine separate Einstellung `requireAuth` eingeführt werden? (Plan: Das Feature wird über eine eigene Admin-Einstellung in den Auth-Settings aktivierbar — unabhängig von `publicView`.)
+
+7. **Single-Provider-Auto-Redirect:** Soll der Auto-Redirect nur für OIDC-Provider gelten, oder auch für statische OAuth-Provider wie GitHub/Google? (Plan: Für alle Provider-Typen.)
 
 ---
 
