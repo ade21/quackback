@@ -597,26 +597,36 @@ Separate Login-Seite für das Portal (statt Modal/Dialog):
 
 **Konfiguration via `returnTo`:** Nach erfolgreicher Anmeldung wird der User zur ursprünglichen URL weitergeleitet.
 
-#### B3: Auto-Redirect bei Single-Provider
+#### B3: Konfigurierbarer Auto-Redirect bei Single-Provider
 
-Wenn nur ein einziger Auth-Provider aktiv ist (z.B. nur OIDC-Keycloak), wird die Login-Seite übersprungen:
+Wenn nur ein einziger Auth-Provider aktiv ist (z.B. nur OIDC-Keycloak) **und** der Admin Auto-Redirect aktiviert hat, wird die Login-Seite übersprungen:
+
+**Neue Einstellung in `PortalAuthMethods`:**
+```typescript
+export interface PortalAuthMethods {
+  // ... bestehende Felder ...
+  requireAuth?: boolean
+  /** Skip login page and redirect directly to the IdP when only one provider is active */
+  autoRedirect?: boolean
+}
+```
 
 ```typescript
 // In portal.login.tsx Loader:
 async function loginLoader({ search }) {
+  const portalConfig = await getPublicPortalConfig()
   const allowedMethods = await getAllowedAuthMethods('user')
   const activeProviders = Object.entries(allowedMethods)
     .filter(([_, enabled]) => enabled)
 
-  // Nur ein Provider (kein Passwort/E-Mail)? → Direkt zum IdP
+  // Auto-Redirect: nur ein OAuth-Provider aktiv + Admin hat es aktiviert
   if (
+    portalConfig.oauth.autoRedirect &&
     activeProviders.length === 1 &&
     activeProviders[0][0] !== 'password' &&
     activeProviders[0][0] !== 'email'
   ) {
     const providerId = activeProviders[0][0]
-    // Redirect direkt zum OAuth/OIDC-Flow
-    // returnTo wird in der callbackURL mitgegeben
     throw redirect({
       to: `/api/auth/signin/${providerId}`,
       search: { callbackURL: search.returnTo ?? '/portal' },
@@ -625,6 +635,15 @@ async function loginLoader({ search }) {
 
   return { allowedMethods, returnTo: search.returnTo }
 }
+```
+
+**Admin-UI:** Neuer Toggle in den Portal-Auth-Settings:
+
+```
+[Toggle] Auto-Redirect to Provider
+When enabled and only one authentication provider is
+active, visitors are sent directly to that provider's
+login page without seeing the Quackback login screen.
 ```
 
 **Use Case:** Unternehmen mit Keycloak als einzigem Login → Besucher landet direkt auf der Keycloak-Login-Seite, ohne Quackback-Zwischenseite.
@@ -684,14 +703,15 @@ Der neue `requireAuth`-Toggle wird in den Portal-Auth-Settings angezeigt (siehe 
 #### B6: Tests
 
 **Unit Tests:**
-- `publicView: false` + keine Session → Redirect auf `/portal/login`
-- `publicView: false` + gültige Session → Portal-Inhalte laden
-- `publicView: true` + keine Session → Portal-Inhalte sichtbar (bestehend)
+- `requireAuth: true` + keine Session → Redirect auf `/portal/login`
+- `requireAuth: true` + gültige Session → Portal-Inhalte laden
+- `requireAuth: false` + keine Session → Portal wie bisher (bestehend)
 
 **Integration Tests:**
 - Besucher → Portal → Redirect → OIDC-Login → Redirect zurück → Portal geladen
-- Single-Provider-Auto-Redirect: nur Keycloak aktiv → kein Zwischenschritt
-- Multiple Provider: Keycloak + GitHub → Login-Seite mit Auswahl
+- `autoRedirect: true` + nur Keycloak aktiv → kein Zwischenschritt
+- `autoRedirect: false` + nur Keycloak → Login-Seite wird angezeigt
+- Multiple Provider: Keycloak + GitHub → Login-Seite mit Auswahl (unabhängig von `autoRedirect`)
 - `returnTo` wird nach Login korrekt aufgelöst
 
 ---
@@ -730,25 +750,17 @@ Der neue `requireAuth`-Toggle wird in den Portal-Auth-Settings angezeigt (siehe 
 
 ---
 
-## Offene Fragen / Entscheidungen
+## Entscheidungen (geklärt)
 
-### OIDC
-
-1. **Token-Refresh:** Better Auth's `genericOAuth` unterstützt aktuell kein Token-Refresh für Custom-Provider. Für Session-basierte Auth ist das kein Problem, aber falls Quackback jemals OIDC-Access-Tokens für Backend-Calls braucht, müsste das manuell implementiert werden.
-
-2. **SAML-Support:** Das SSO-Plugin unterstützt auch SAML 2.0. Soll SAML in einem späteren Schritt hinzugefügt werden? Das würde eine andere Plugin-Wahl erfordern (`@better-auth/sso` statt `genericOAuth`).
-
-3. **Mehrere OIDC-Provider:** Das Design erlaubt beliebig viele OIDC-Provider gleichzeitig. Soll es ein Limit geben?
-
-4. **Portal vs. Team:** Sollen OIDC-Provider sowohl für Portal-User als auch Team-Member verfügbar sein? (Aktueller Plan: Ja, analog zu den bestehenden OAuth-Providern.)
-
-5. **Provider-Icons:** Sollen Admins ein Custom-Icon (SVG/PNG) hochladen können, oder reicht eine Farbauswahl für den Hintergrund?
-
-### Erzwungene Anmeldung
-
-6. **`publicView` vs. neue Einstellung:** Reicht es, das bestehende `publicView: false` konsequenter umzusetzen (Redirect statt Dialog), oder soll eine separate Einstellung `requireAuth` eingeführt werden? (Plan: Das Feature wird über eine eigene Admin-Einstellung in den Auth-Settings aktivierbar — unabhängig von `publicView`.)
-
-7. **Single-Provider-Auto-Redirect:** Soll der Auto-Redirect nur für OIDC-Provider gelten, oder auch für statische OAuth-Provider wie GitHub/Google? (Plan: Für alle Provider-Typen.)
+| # | Frage | Entscheidung |
+|---|-------|-------------|
+| 1 | Token-Refresh für OIDC | **Nicht relevant.** Session-basierte Auth reicht. |
+| 2 | SAML-Support | **Kein SAML.** Nur OIDC via `genericOAuth`. |
+| 3 | Portal + Team | **Beide.** OIDC-Provider für Portal-User und Team-Member. |
+| 4 | Provider-Icons | **Nur Farbauswahl.** Kein Icon-Upload. Tailwind-Klasse für Button-BG. |
+| 5 | Provider-Limit | **Kein Limit.** Beliebig viele OIDC-Provider gleichzeitig. |
+| 6 | `requireAuth` Einstellung | **Eigene Einstellung** in `PortalAuthMethods`, unabhängig von `publicView`. |
+| 7 | Single-Provider-Auto-Redirect | **Konfigurierbar.** Admin-Setting `autoRedirect` in den Portal-Auth-Settings. |
 
 ---
 
