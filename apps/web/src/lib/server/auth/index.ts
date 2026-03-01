@@ -1,6 +1,6 @@
 import { betterAuth } from 'better-auth'
 import { drizzleAdapter } from 'better-auth/adapters/drizzle'
-import { emailOTP, oneTimeToken, magicLink, jwt } from 'better-auth/plugins'
+import { emailOTP, oneTimeToken, magicLink, jwt, genericOAuth } from 'better-auth/plugins'
 import { oauthProvider } from '@better-auth/oauth-provider'
 import { tanstackStartCookies } from 'better-auth/tanstack-start'
 import { generateId } from '@quackback/ids'
@@ -58,6 +58,8 @@ async function createAuth() {
   const { getPlatformCredentials } =
     await import('@/lib/server/domains/platform-credentials/platform-credential.service')
   const { getAllAuthProviders } = await import('./auth-providers')
+  const { listEnabledOidcProviders } =
+    await import('@/lib/server/domains/oidc-providers/oidc-provider.service')
 
   // Build socialProviders config from DB-stored credentials
   const socialProviders: Record<string, Record<string, string>> = {}
@@ -79,6 +81,43 @@ async function createAuth() {
       socialProviders[provider.id] = providerConfig
       trustedProviders.push(provider.id)
     }
+  }
+
+  // Build genericOAuth config from OIDC providers stored in DB
+  const oidcProviders = await listEnabledOidcProviders()
+  const genericOAuthConfigs: Array<{
+    providerId: string
+    clientId: string
+    clientSecret: string
+    discoveryUrl: string
+    issuer?: string
+    scopes?: string[]
+    authorizationUrl?: string
+    tokenUrl?: string
+    userInfoUrl?: string
+    pkce?: boolean
+    requireIssuerValidation?: boolean
+  }> = []
+
+  for (const provider of oidcProviders) {
+    const creds = await getPlatformCredentials(`auth_oidc_${provider.providerId}`)
+    if (!creds?.clientId || !creds?.clientSecret) continue
+
+    genericOAuthConfigs.push({
+      providerId: `oidc-${provider.providerId}`,
+      clientId: creds.clientId,
+      clientSecret: creds.clientSecret,
+      discoveryUrl: provider.discoveryUrl,
+      issuer: provider.issuer ?? undefined,
+      scopes: provider.scopes.split(' ').filter(Boolean),
+      authorizationUrl: provider.authorizationUrl ?? undefined,
+      tokenUrl: provider.tokenUrl ?? undefined,
+      userInfoUrl: provider.userInfoUrl ?? undefined,
+      pkce: provider.pkceEnabled,
+      requireIssuerValidation: provider.requireIssuerValidation,
+    })
+
+    trustedProviders.push(`oidc-${provider.providerId}`)
   }
 
   // BASE_URL is required for auth callbacks and redirects
@@ -286,6 +325,9 @@ async function createAuth() {
           }
         },
       }),
+
+      // Generic OAuth plugin for custom OIDC providers (only when configured)
+      ...(genericOAuthConfigs.length > 0 ? [genericOAuth({ config: genericOAuthConfigs })] : []),
 
       // TanStack Start cookie management plugin (must be last)
       tanstackStartCookies(),

@@ -129,6 +129,9 @@ export type DomainId = TypeId<'domain'>
 /** Transfer token ID - e.g., transfer_token_01h455vb4pex5vsknk084sn02q */
 export type TransferTokenId = TypeId<'transfer_token'>
 
+/** OIDC provider config ID - e.g., oidc_prov_01h455vb4pex5vsknk084sn02q */
+export type OidcProvId = TypeId<'oidc_prov'>
+
 /** API key ID - e.g., api_key_01h455vb4pex5vsknk084sn02q */
 export type ApiKeyId = TypeId<'api_key'>
 
@@ -191,6 +194,7 @@ export interface EntityIdMap {
   verification: VerificationId
   domain: DomainId
   transfer_token: TransferTokenId
+  oidc_prov: OidcProvId
   api_key: ApiKeyId
   webhook: WebhookId
   subscription: SubscriptionId

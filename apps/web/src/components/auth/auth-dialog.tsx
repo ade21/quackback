@@ -8,11 +8,13 @@ import {
 import { PortalAuthFormInline } from './portal-auth-form-inline'
 import { useAuthPopover } from './auth-popover-context'
 import { useAuthBroadcast } from '@/lib/client/hooks/use-auth-broadcast'
+import type { PublicOidcProvider } from '@/lib/server/domains/settings/settings.types'
 
 interface OrgAuthConfig {
   found: boolean
   oauth: Record<string, boolean | undefined>
   openSignup?: boolean
+  oidcProviders?: PublicOidcProvider[]
 }
 
 interface AuthDialogProps {

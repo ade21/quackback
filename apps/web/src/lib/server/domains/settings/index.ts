@@ -23,6 +23,7 @@ export type {
   UpdatePortalConfigInput,
   PublicAuthConfig,
   PublicPortalConfig,
+  PublicOidcProvider,
   DeveloperConfig,
   UpdateDeveloperConfigInput,
   WidgetConfig,

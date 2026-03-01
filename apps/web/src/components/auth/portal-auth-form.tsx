@@ -11,7 +11,7 @@ import {
   ArrowLeftIcon,
 } from '@heroicons/react/24/solid'
 import { authClient } from '@/lib/server/auth/client'
-import type { PortalAuthMethods } from '@/lib/server/domains/settings'
+import type { PortalAuthMethods, PublicOidcProvider } from '@/lib/server/domains/settings'
 
 interface InvitationInfo {
   id: string
@@ -28,6 +28,8 @@ interface PortalAuthFormProps {
   callbackUrl?: string
   /** Auth method configuration (which methods are enabled) */
   authConfig?: PortalAuthMethods
+  /** Custom OIDC providers (from PublicPortalConfig.oidcProviders) */
+  oidcProviders?: PublicOidcProvider[]
 }
 
 type Step = 'credentials' | 'email' | 'code' | 'forgot' | 'reset'
@@ -51,10 +53,11 @@ export function PortalAuthForm({
   invitationId,
   callbackUrl = '/',
   authConfig,
+  oidcProviders,
 }: PortalAuthFormProps) {
   const passwordEnabled = authConfig?.password ?? true
   const emailOtpEnabled = authConfig?.email ?? false
-  const oauthProviders = authConfig ? getEnabledOAuthProviders(authConfig) : []
+  const oauthProviders = authConfig ? getEnabledOAuthProviders(authConfig, oidcProviders) : []
 
   // Default step depends on what's enabled
   const defaultStep: Step = passwordEnabled ? 'credentials' : 'email'

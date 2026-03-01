@@ -74,6 +74,10 @@ export interface PortalFeatures {
   allowDeleteAfterEngagement: boolean
   /** Show public edit history on posts */
   showPublicEditHistory: boolean
+  /** Require authentication before accessing any portal content (redirect to login) */
+  requireAuth?: boolean
+  /** Skip login page when only one auth provider is active (direct IdP redirect) */
+  autoRedirect?: boolean
 }
 
 /**
@@ -278,11 +282,26 @@ export interface UpdatePortalConfigInput {
 // =============================================================================
 
 /**
+ * Public OIDC provider info — safe to send to the client.
+ * Used by OAuthButtons to render sign-in buttons for custom OIDC providers.
+ */
+export interface PublicOidcProvider {
+  /** Sign-in provider ID, e.g. 'oidc-keycloak' */
+  id: string
+  /** Display name, e.g. 'Company SSO' */
+  name: string
+  /** Tailwind bg class for icon container */
+  iconBg: string
+}
+
+/**
  * Public auth config for team login forms
  */
 export interface PublicAuthConfig {
   oauth: OAuthProviders
   openSignup: boolean
+  /** Enabled custom OIDC providers */
+  oidcProviders: PublicOidcProvider[]
 }
 
 /**
@@ -291,4 +310,6 @@ export interface PublicAuthConfig {
 export interface PublicPortalConfig {
   oauth: PortalAuthMethods
   features: PortalFeatures
+  /** Enabled custom OIDC providers */
+  oidcProviders: PublicOidcProvider[]
 }

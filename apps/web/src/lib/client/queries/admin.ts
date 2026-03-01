@@ -20,6 +20,7 @@ import {
   fetchAuthProviderStatusFn,
   fetchAuthProviderCredentialsMaskedFn,
 } from '@/lib/server/functions/auth-provider-credentials'
+import { listOidcProvidersFn } from '@/lib/server/functions/oidc-providers'
 import { fetchApiKeys } from '@/lib/server/functions/api-keys'
 import { fetchWebhooks } from '@/lib/server/functions/webhooks'
 import { fetchRoadmaps } from '@/lib/server/functions/roadmaps'
@@ -344,6 +345,23 @@ export const adminQueries = {
       queryKey: ['admin', 'userAttributes'],
       queryFn: () => listUserAttributesFn(),
       staleTime: 60 * 1000,
+    }),
+
+  /**
+   * List all OIDC providers
+   */
+  oidcProviders: () =>
+    queryOptions({
+      queryKey: ['admin', 'oidcProviders'],
+      queryFn: async () => {
+        const data = await listOidcProvidersFn()
+        return data.map((p) => ({
+          ...p,
+          createdAt: new Date(p.createdAt),
+          updatedAt: new Date(p.updatedAt),
+        }))
+      },
+      staleTime: 30 * 1000,
     }),
 }
 

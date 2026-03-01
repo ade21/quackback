@@ -48,7 +48,10 @@ function PortalAuthPage() {
         description="Choose which authentication methods are available to portal users. Configure OAuth providers by adding your app credentials."
       >
         <PortalAuthSettings
-          initialConfig={{ oauth: portalConfigQuery.data.oauth }}
+          initialConfig={{
+            oauth: portalConfigQuery.data.oauth,
+            features: portalConfigQuery.data.features,
+          }}
           credentialStatus={credentialStatusQuery.data}
         />
       </SettingsCard>

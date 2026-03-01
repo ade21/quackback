@@ -9,6 +9,7 @@ import type {
   BrandingConfig,
   PublicAuthConfig,
   PublicPortalConfig,
+  PublicOidcProvider,
   DeveloperConfig,
   UpdateDeveloperConfigInput,
   WidgetConfig,
@@ -500,15 +501,42 @@ export async function updateWorkspaceName(name: string): Promise<string> {
   }
 }
 
+async function getPublicOidcProviders(): Promise<PublicOidcProvider[]> {
+  const { listEnabledOidcProviders } =
+    await import('@/lib/server/domains/oidc-providers/oidc-provider.service')
+  const { getPlatformCredentials } =
+    await import('@/lib/server/domains/platform-credentials/platform-credential.service')
+
+  const providers = await listEnabledOidcProviders()
+  const result: PublicOidcProvider[] = []
+
+  for (const p of providers) {
+    const creds = await getPlatformCredentials(`auth_oidc_${p.providerId}`)
+    if (creds?.clientId && creds?.clientSecret) {
+      result.push({
+        id: `oidc-${p.providerId}`,
+        name: p.displayName,
+        iconBg: p.iconBg ?? 'bg-blue-600',
+      })
+    }
+  }
+
+  return result
+}
+
 export async function getPublicAuthConfig(): Promise<PublicAuthConfig> {
   try {
     const org = await requireSettings()
     const authConfig = parseJsonConfig(org.authConfig, DEFAULT_AUTH_CONFIG)
 
-    const configuredTypes = await getConfiguredAuthTypes()
+    const [configuredTypes, oidcProviders] = await Promise.all([
+      getConfiguredAuthTypes(),
+      getPublicOidcProviders(),
+    ])
     return {
       oauth: filterOAuthByCredentials(authConfig.oauth, configuredTypes, ['password']),
       openSignup: authConfig.openSignup,
+      oidcProviders,
     }
   } catch (error) {
     wrapDbError('fetch public auth config', error)
@@ -520,13 +548,15 @@ export async function getPublicPortalConfig(): Promise<PublicPortalConfig> {
     const org = await requireSettings()
     const portalConfig = parseJsonConfig(org.portalConfig, DEFAULT_PORTAL_CONFIG)
 
-    const [configuredTypes, passthroughKeys] = await Promise.all([
+    const [configuredTypes, passthroughKeys, oidcProviders] = await Promise.all([
       getConfiguredAuthTypes(),
       getPortalPassthroughKeys(),
+      getPublicOidcProviders(),
     ])
     return {
       oauth: filterOAuthByCredentials(portalConfig.oauth, configuredTypes, passthroughKeys),
       features: portalConfig.features,
+      oidcProviders,
     }
   } catch (error) {
     wrapDbError('fetch public portal config', error)
@@ -575,9 +605,10 @@ export async function getTenantSettings(): Promise<TenantSettings | null> {
 
     const widgetConfig = parseJsonConfig(org.widgetConfig, DEFAULT_WIDGET_CONFIG)
 
-    const [configuredTypes, portalPassthroughKeys] = await Promise.all([
+    const [configuredTypes, portalPassthroughKeys, oidcProviders] = await Promise.all([
       getConfiguredAuthTypes(),
       getPortalPassthroughKeys(),
+      getPublicOidcProviders(),
     ])
     const filteredAuthOAuth = filterOAuthByCredentials(authConfig.oauth, configuredTypes, [
       'password',
@@ -606,10 +637,15 @@ export async function getTenantSettings(): Promise<TenantSettings | null> {
       brandingConfig,
       developerConfig,
       customCss: org.customCss ?? '',
-      publicAuthConfig: { oauth: filteredAuthOAuth, openSignup: authConfig.openSignup },
+      publicAuthConfig: {
+        oauth: filteredAuthOAuth,
+        openSignup: authConfig.openSignup,
+        oidcProviders,
+      },
       publicPortalConfig: {
         oauth: filteredPortalOAuth,
         features: portalConfig.features,
+        oidcProviders,
       },
       publicWidgetConfig: {
         enabled: widgetConfig.enabled,

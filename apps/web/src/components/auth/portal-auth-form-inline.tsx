@@ -13,11 +13,13 @@ import { AUTH_PROVIDER_ICON_MAP } from '@/components/icons/social-provider-icons
 import { getEnabledOAuthProviders } from '@/components/auth/oauth-buttons'
 import { openAuthPopup, usePopupTracker } from '@/lib/client/hooks/use-auth-broadcast'
 import { authClient } from '@/lib/server/auth/client'
+import type { PublicOidcProvider } from '@/lib/server/domains/settings/settings.types'
 
 interface OrgAuthConfig {
   found: boolean
   oauth: Record<string, boolean | undefined>
   openSignup?: boolean
+  oidcProviders?: PublicOidcProvider[]
 }
 
 interface InvitationInfo {
@@ -383,11 +385,19 @@ export function PortalAuthFormInline({
     trackPopup(popup)
 
     try {
-      const result = await authClient.signIn.social({
-        provider,
-        callbackURL: '/auth/auth-complete',
-        disableRedirect: true,
-      })
+      // OIDC providers (oidc-*) use genericOAuth signIn; built-in providers use social signIn
+      const isOidc = provider.startsWith('oidc-')
+      const result = isOidc
+        ? await authClient.signIn.oauth2({
+            providerId: provider,
+            callbackURL: '/auth/auth-complete',
+            disableRedirect: true,
+          })
+        : await authClient.signIn.social({
+            provider,
+            callbackURL: '/auth/auth-complete',
+            disableRedirect: true,
+          })
 
       if (result.data?.url) {
         popup.location.href = result.data.url
@@ -404,7 +414,10 @@ export function PortalAuthFormInline({
   }
 
   // Derive which auth methods are enabled
-  const enabledProviders = getEnabledOAuthProviders(authConfig?.oauth ?? {})
+  const enabledProviders = getEnabledOAuthProviders(
+    authConfig?.oauth ?? {},
+    authConfig?.oidcProviders
+  )
   const showOAuth = enabledProviders.length > 0
 
   // Loading invitation
@@ -473,10 +486,15 @@ export function PortalAuthFormInline({
           <div className="space-y-3">
             {enabledProviders.map((provider) => {
               const IconComp = AUTH_PROVIDER_ICON_MAP[provider.id]
+              const icon = IconComp ? (
+                <IconComp className="h-5 w-5" />
+              ) : provider.iconBg ? (
+                <span className={`h-5 w-5 rounded-sm ${provider.iconBg}`} />
+              ) : null
               return (
                 <OAuthButton
                   key={provider.id}
-                  icon={IconComp ? <IconComp className="h-5 w-5" /> : null}
+                  icon={icon}
                   label={provider.name}
                   mode={mode}
                   loading={loadingAction === provider.id}

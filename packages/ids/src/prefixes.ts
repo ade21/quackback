@@ -60,6 +60,7 @@ export const ID_PREFIXES = {
   verification: 'verification',
   domain: 'domain',
   transfer_token: 'transfer_token',
+  oidc_prov: 'oidc_prov',
 
   // ============================================
   // Billing

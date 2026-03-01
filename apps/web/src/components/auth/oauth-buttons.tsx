@@ -8,11 +8,19 @@ import {
   usePopupTracker,
 } from '@/lib/client/hooks/use-auth-broadcast'
 import { authClient } from '@/lib/server/auth/client'
+import type { PublicOidcProvider } from '@/lib/server/domains/settings/settings.types'
+
+interface OAuthProvider {
+  id: string
+  name: string
+  /** Tailwind bg class for OIDC providers without a built-in icon */
+  iconBg?: string
+}
 
 interface OAuthButtonsProps {
   callbackUrl?: string
   /** Dynamic list of enabled providers keyed by provider ID */
-  providers: { id: string; name: string }[]
+  providers: OAuthProvider[]
   /** Callback when auth succeeds (for popup flow) */
   onSuccess?: () => void
 }
@@ -63,12 +71,19 @@ export function OAuthButtons({ callbackUrl = '/', providers, onSuccess }: OAuthB
     trackPopup(popup)
 
     try {
-      // POST to Better Auth's /sign-in/social endpoint to get OAuth URL
-      const result = await authClient.signIn.social({
-        provider: providerId,
-        callbackURL: callbackUrl,
-        disableRedirect: true,
-      })
+      // OIDC providers (oidc-*) use genericOAuth signIn; built-in providers use social signIn
+      const isOidc = providerId.startsWith('oidc-')
+      const result = isOidc
+        ? await authClient.signIn.oauth2({
+            providerId,
+            callbackURL: callbackUrl,
+            disableRedirect: true,
+          })
+        : await authClient.signIn.social({
+            provider: providerId,
+            callbackURL: callbackUrl,
+            disableRedirect: true,
+          })
 
       if (result.data?.url) {
         popup.location.href = result.data.url
@@ -105,7 +120,11 @@ export function OAuthButtons({ callbackUrl = '/', providers, onSuccess }: OAuthB
             onClick={() => handleOAuthLogin(provider.id)}
             disabled={loadingProvider !== null}
           >
-            {IconComponent && <IconComponent className="mr-2 h-4 w-4" />}
+            {IconComponent ? (
+              <IconComponent className="mr-2 h-4 w-4" />
+            ) : provider.iconBg ? (
+              <span className={`mr-2 h-4 w-4 rounded-sm ${provider.iconBg}`} />
+            ) : null}
             {loadingProvider === provider.id ? 'Signing in...' : `Continue with ${provider.name}`}
           </Button>
         )
@@ -115,20 +134,28 @@ export function OAuthButtons({ callbackUrl = '/', providers, onSuccess }: OAuthB
 }
 
 /**
- * Build provider list from PortalAuthMethods config.
- * Filters to only enabled OAuth providers (excludes 'email').
+ * Build provider list from PortalAuthMethods config + OIDC providers.
+ * Filters to only enabled OAuth providers (excludes 'email' and 'password').
+ * OIDC providers are appended after built-in social providers.
  */
 export function getEnabledOAuthProviders(
-  authConfig: Record<string, boolean | undefined>
-): { id: string; name: string }[] {
+  authConfig: Record<string, boolean | undefined>,
+  oidcProviders?: PublicOidcProvider[]
+): OAuthProvider[] {
   const providerMap = new Map(AUTH_PROVIDERS.map((p) => [p.id, p]))
-  const result: { id: string; name: string }[] = []
+  const result: OAuthProvider[] = []
 
   for (const [key, enabled] of Object.entries(authConfig)) {
     if (key === 'email' || key === 'password' || !enabled) continue
     const provider = providerMap.get(key)
     if (provider) {
       result.push({ id: provider.id, name: provider.name })
+    }
+  }
+
+  if (oidcProviders) {
+    for (const p of oidcProviders) {
+      result.push({ id: p.id, name: p.name, iconBg: p.iconBg })
     }
   }
 

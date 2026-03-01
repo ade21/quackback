@@ -7,12 +7,21 @@ import { DEFAULT_PORTAL_CONFIG } from '@/lib/server/domains/settings'
 import { generateThemeCSS, getGoogleFontsUrl } from '@/lib/shared/theme'
 
 export const Route = createFileRoute('/_portal')({
-  loader: async ({ context }) => {
+  loader: async ({ context, location }) => {
     const { session, settings, userRole, baseUrl } = context
 
     const org = settings?.settings
     if (!org) {
       throw redirect({ to: '/onboarding' })
+    }
+
+    // Enforce authentication if requireAuth is enabled
+    const portalFeatures = settings?.publicPortalConfig?.features
+    if (portalFeatures?.requireAuth && !session?.user) {
+      throw redirect({
+        to: '/auth/login',
+        search: { returnTo: location.pathname },
+      })
     }
 
     // userRole comes from bootstrap data, avatar needs to be fetched
@@ -51,6 +60,7 @@ export const Route = createFileRoute('/_portal')({
     const authConfig = {
       found: true,
       oauth: portalConfig?.oauth ?? DEFAULT_PORTAL_CONFIG.oauth,
+      oidcProviders: portalConfig?.oidcProviders,
     }
 
     return {

@@ -187,6 +187,7 @@ export const subscriptionIdSchema = typeIdSchema(ID_PREFIXES.subscription)
 export const invoiceIdSchema = typeIdSchema(ID_PREFIXES.invoice)
 export const domainIdSchema = typeIdSchema(ID_PREFIXES.domain)
 export const segmentIdSchema = typeIdSchema(ID_PREFIXES.segment)
+export const oidcProvIdSchema = typeIdSchema(ID_PREFIXES.oidc_prov)
 
 // Flexible schemas (accept TypeID or UUID, normalize to UUID)
 export const flexibleSegmentIdSchema = flexibleIdSchema(ID_PREFIXES.segment)

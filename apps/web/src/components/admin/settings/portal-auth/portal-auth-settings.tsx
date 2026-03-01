@@ -17,11 +17,12 @@ import { updatePortalConfigFn } from '@/lib/server/functions/settings'
 import { AUTH_PROVIDER_ICON_MAP } from '@/components/icons/social-provider-icons'
 import { AUTH_PROVIDERS } from '@/lib/server/auth/auth-providers'
 import { AuthProviderCredentialsDialog } from './auth-provider-credentials-dialog'
-import type { PortalAuthMethods } from '@/lib/server/domains/settings'
+import type { PortalAuthMethods, PortalFeatures } from '@/lib/server/domains/settings'
 
 interface PortalAuthSettingsProps {
   initialConfig: {
     oauth: PortalAuthMethods
+    features?: PortalFeatures
   }
   credentialStatus: Record<string, boolean> & { _emailConfigured?: boolean }
 }
@@ -33,6 +34,8 @@ export function PortalAuthSettings({ initialConfig, credentialStatus }: PortalAu
   const [oauthState, setOauthState] = useState<Record<string, boolean | undefined>>(
     initialConfig.oauth
   )
+  const [requireAuth, setRequireAuth] = useState(initialConfig.features?.requireAuth ?? false)
+  const [autoRedirect, setAutoRedirect] = useState(initialConfig.features?.autoRedirect ?? false)
   const [configDialog, setConfigDialog] = useState<{
     credentialType: string
     providerId: string
@@ -81,6 +84,28 @@ export function PortalAuthSettings({ initialConfig, credentialStatus }: PortalAu
     }
   }
 
+  const saveFeatureConfig = async (features: Record<string, boolean>) => {
+    setSaving(true)
+    try {
+      await updatePortalConfigFn({ data: { features } })
+      startTransition(() => {
+        router.invalidate()
+      })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleRequireAuthToggle = (checked: boolean) => {
+    setRequireAuth(checked)
+    saveFeatureConfig({ requireAuth: checked })
+  }
+
+  const handleAutoRedirectToggle = (checked: boolean) => {
+    setAutoRedirect(checked)
+    saveFeatureConfig({ autoRedirect: checked })
+  }
+
   const handleToggle = (providerId: string, checked: boolean) => {
     setOauthState((prev) => ({ ...prev, [providerId]: checked }))
     saveOAuthConfig({ [providerId]: checked })
@@ -100,6 +125,66 @@ export function PortalAuthSettings({ initialConfig, credentialStatus }: PortalAu
 
   return (
     <div className="space-y-8">
+      {/* Access Control */}
+      <div>
+        <div className="mb-3">
+          <h2 className="text-sm font-semibold text-foreground">Access Control</h2>
+          <p className="text-xs text-muted-foreground">Control who can access the portal</p>
+        </div>
+        <div className="space-y-3">
+          <div className="rounded-xl border border-border/50 bg-card p-5 shadow-sm">
+            <div className="flex items-center justify-between">
+              <div className="flex items-start gap-4">
+                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-muted">
+                  <LockClosedIcon className="h-5 w-5" />
+                </div>
+                <div>
+                  <Label htmlFor="require-auth-toggle" className="font-medium cursor-pointer">
+                    Require Authentication
+                  </Label>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Visitors must sign in before they can access the portal. They will be redirected
+                    to the login page automatically.
+                  </p>
+                </div>
+              </div>
+              <Switch
+                id="require-auth-toggle"
+                checked={requireAuth}
+                onCheckedChange={handleRequireAuthToggle}
+                disabled={saving || isPending}
+                aria-label="Require authentication"
+              />
+            </div>
+          </div>
+          <div className="rounded-xl border border-border/50 bg-card p-5 shadow-sm">
+            <div className="flex items-center justify-between">
+              <div className="flex items-start gap-4">
+                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-muted">
+                  <ArrowPathIcon className="h-5 w-5" />
+                </div>
+                <div>
+                  <Label htmlFor="auto-redirect-toggle" className="font-medium cursor-pointer">
+                    Auto-Redirect to Provider
+                  </Label>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    When only one authentication provider is active, visitors are sent directly to
+                    that provider&apos;s login page without seeing the Quackback login screen.
+                  </p>
+                </div>
+              </div>
+              <Switch
+                id="auto-redirect-toggle"
+                checked={autoRedirect}
+                onCheckedChange={handleAutoRedirectToggle}
+                disabled={saving || isPending}
+                aria-label="Auto-redirect to provider"
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* Password — always available, no credentials needed */}
       <div>
         <div className="mb-3">

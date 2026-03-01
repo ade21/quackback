@@ -103,6 +103,7 @@ export type {
   TransferTokenId,
   ApiKeyId,
   WebhookId,
+  OidcProvId,
   // Billing
   SubscriptionId,
   InvoiceId,
@@ -149,6 +150,7 @@ export {
   invoiceIdSchema,
   domainIdSchema,
   segmentIdSchema,
+  oidcProvIdSchema,
   // Pre-built flexible schemas
   flexibleSegmentIdSchema,
   flexiblePostIdSchema,

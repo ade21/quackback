@@ -14,6 +14,7 @@ import {
   CommandLineIcon,
   ChatBubbleLeftRightIcon,
   AdjustmentsHorizontalIcon,
+  ShieldCheckIcon,
 } from '@heroicons/react/24/solid'
 import { cn } from '@/lib/shared/utils'
 
@@ -54,6 +55,7 @@ const navSections: NavSection[] = [
     label: 'Users',
     items: [
       { label: 'Authentication', to: '/admin/settings/portal-auth', icon: LockClosedIcon },
+      { label: 'OIDC Providers', to: '/admin/settings/oidc-providers', icon: ShieldCheckIcon },
       {
         label: 'User Attributes',
         to: '/admin/settings/user-attributes',

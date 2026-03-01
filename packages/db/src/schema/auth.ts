@@ -9,6 +9,7 @@
 import { relations } from 'drizzle-orm'
 import { pgTable, text, timestamp, boolean, index, uniqueIndex, jsonb } from 'drizzle-orm/pg-core'
 import { sql } from 'drizzle-orm'
+import { varchar } from 'drizzle-orm/pg-core'
 import { typeIdWithDefault, typeIdColumn, typeIdColumnNullable } from '@quackback/ids/drizzle'
 import { apiKeys } from './api-keys'
 import { integrations } from './integrations'
@@ -380,6 +381,47 @@ export const oauthConsent = pgTable('oauth_consent', {
   updatedAt: timestamp('updated_at', { withTimezone: true }),
 })
 
+/**
+ * OIDC provider configuration for generic OIDC authentication.
+ * Stores provider metadata; credentials (clientId/clientSecret) are stored
+ * encrypted in integrationPlatformCredentials with type `auth_oidc_{providerId}`.
+ */
+export interface OidcProfileMapping {
+  name?: string
+  email?: string
+  image?: string
+  emailVerified?: string
+}
+
+export const oidcProvider = pgTable(
+  'oidc_providers',
+  {
+    id: typeIdWithDefault('oidc_prov')('id').primaryKey(),
+    providerId: varchar('provider_id', { length: 50 }).notNull().unique(),
+    displayName: varchar('display_name', { length: 100 }).notNull(),
+    discoveryUrl: text('discovery_url').notNull(),
+    issuer: text('issuer'),
+    scopes: text('scopes').notNull().default('openid profile email'),
+    authorizationUrl: text('authorization_url'),
+    tokenUrl: text('token_url'),
+    userInfoUrl: text('user_info_url'),
+    iconBg: varchar('icon_bg', { length: 30 }).default('bg-blue-600'),
+    pkceEnabled: boolean('pkce_enabled').notNull().default(true),
+    requireIssuerValidation: boolean('require_issuer_validation').notNull().default(true),
+    profileMapping: jsonb('profile_mapping').$type<OidcProfileMapping | null>(),
+    enabled: boolean('enabled').notNull().default(true),
+    configuredByPrincipalId: typeIdColumnNullable('principal')(
+      'configured_by_principal_id'
+    ).references(() => principal.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (table) => [index('oidc_provider_enabled_idx').on(table.enabled)]
+)
+
 // Relations for Drizzle relational queries (enables experimental joins)
 export const userRelations = relations(user, ({ many }) => ({
   sessions: many(session),
@@ -420,6 +462,13 @@ export const principalRelations = relations(principal, ({ one, many }) => ({
   apiKey: many(apiKeys, { relationName: 'apiKeyPrincipal' }),
   connectedIntegrations: many(integrations, { relationName: 'integrationConnector' }),
   integration: many(integrations, { relationName: 'integrationPrincipal' }),
+}))
+
+export const oidcProviderRelations = relations(oidcProvider, ({ one }) => ({
+  configuredBy: one(principal, {
+    fields: [oidcProvider.configuredByPrincipalId],
+    references: [principal.id],
+  }),
 }))
 
 export const invitationRelations = relations(invitation, ({ one }) => ({

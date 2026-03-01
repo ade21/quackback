@@ -181,6 +181,9 @@ export {
   // Schema tables - sentiment
   postSentiment,
   postSentimentRelations,
+  // Schema tables - oidc providers
+  oidcProvider,
+  oidcProviderRelations,
   // Schema tables - api keys
   apiKeys,
   apiKeysRelations,
@@ -203,7 +206,9 @@ export {
   type CurrencyCode,
   // Schema tables - user attributes
   userAttributeDefinitions,
-  // Types/constants
+  // Types
+  type OidcProfileMapping,
+  // Constants
   REACTION_EMOJIS,
   USE_CASE_TYPES,
   // Client functions
